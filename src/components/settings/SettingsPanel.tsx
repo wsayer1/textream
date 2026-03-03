@@ -81,6 +81,35 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <Section title="Speech Engine">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className={clsx(
+                    'w-2 h-2 rounded-full',
+                    settings.deepgram_api_key ? 'bg-emerald-400' : 'bg-neutral-600'
+                  )}
+                />
+                <span className="text-sm text-neutral-300">
+                  {settings.deepgram_api_key ? 'Deepgram Nova-3' : 'Browser (fallback)'}
+                </span>
+              </div>
+              <input
+                type="password"
+                placeholder="Deepgram API key"
+                value={settings.deepgram_api_key}
+                onChange={(e) =>
+                  settings.update({ deepgram_api_key: e.target.value })
+                }
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              />
+              <p className="text-[11px] text-neutral-500 leading-relaxed">
+                Paste your Deepgram API key for higher-accuracy speech recognition.
+                Without a key, the browser's built-in speech engine is used.
+              </p>
+            </div>
+          </Section>
+
           <Section title="Listening Mode">
             <div className="space-y-2">
               {LISTENING_MODES.map((mode) => (

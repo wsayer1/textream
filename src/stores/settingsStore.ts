@@ -34,6 +34,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         auto_next_page: data.auto_next_page,
         auto_next_page_delay: data.auto_next_page_delay,
         speech_locale: data.speech_locale,
+        deepgram_api_key: data.deepgram_api_key || '',
         loaded: true,
       });
     } else {

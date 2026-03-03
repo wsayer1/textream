@@ -14,10 +14,12 @@ interface PrompterStore {
   isComplete: boolean;
   smoothWordProgress: number;
   smoothTimerActive: boolean;
+  lastMatchedFinalizedLen: number;
 
   setPages: (pages: string[]) => void;
   startPage: (index: number) => void;
   handleSpeechResult: (transcript: string) => void;
+  handleDeepgramResult: (finalizedText: string, interimText: string) => void;
   jumpToWord: (charOffset: number) => void;
   nextPage: () => boolean;
   prevPage: () => boolean;
@@ -40,6 +42,7 @@ export const usePrompterStore = create<PrompterStore>((set, get) => ({
   isComplete: false,
   smoothWordProgress: 0,
   smoothTimerActive: false,
+  lastMatchedFinalizedLen: 0,
 
   setPages: (pages) => set({ pages }),
 
@@ -60,6 +63,7 @@ export const usePrompterStore = create<PrompterStore>((set, get) => ({
       isComplete: false,
       smoothWordProgress: 0,
       smoothTimerActive: false,
+      lastMatchedFinalizedLen: 0,
     });
   },
 
@@ -75,10 +79,39 @@ export const usePrompterStore = create<PrompterStore>((set, get) => ({
     set({ recognizedCharCount: newCount, lastSpokenText: transcript });
   },
 
+  handleDeepgramResult: (finalizedText, interimText) => {
+    const { sourceText, matchStartOffset, recognizedCharCount, lastMatchedFinalizedLen } = get();
+    if (!sourceText) return;
+
+    const newFinalized = finalizedText.slice(lastMatchedFinalizedLen);
+    const spokenChunk = newFinalized + (interimText ? ' ' + interimText : '');
+    if (!spokenChunk.trim()) return;
+
+    const newCount = matchCharacters(
+      sourceText,
+      matchStartOffset,
+      spokenChunk,
+      recognizedCharCount
+    );
+
+    const updates: Partial<PrompterStore> = {
+      recognizedCharCount: newCount,
+      lastSpokenText: spokenChunk,
+    };
+
+    if (newCount > recognizedCharCount && !interimText) {
+      updates.matchStartOffset = newCount;
+      updates.lastMatchedFinalizedLen = finalizedText.length;
+    }
+
+    set(updates);
+  },
+
   jumpToWord: (charOffset) => {
     set({
       recognizedCharCount: charOffset,
       matchStartOffset: charOffset,
+      lastMatchedFinalizedLen: 0,
     });
   },
 
@@ -121,6 +154,7 @@ export const usePrompterStore = create<PrompterStore>((set, get) => ({
       isComplete: false,
       smoothWordProgress: 0,
       smoothTimerActive: false,
+      lastMatchedFinalizedLen: 0,
     });
   },
 

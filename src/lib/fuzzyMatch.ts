@@ -1,15 +1,19 @@
 import { isAnnotationWord } from './textUtils';
 
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+const NON_LETTER_DIGIT_SPACE = /[^\p{L}\p{N}\s]/gu;
+const NON_LETTER_DIGIT = /[^\p{L}\p{N}]/gu;
+
 function normalize(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
+    .replace(NON_LETTER_DIGIT_SPACE, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function isAlphanumeric(ch: string): boolean {
-  return /[a-z0-9]/i.test(ch);
+  return LETTER_OR_DIGIT.test(ch);
 }
 
 function editDistance(a: string, b: string): number {
@@ -54,6 +58,10 @@ function isFuzzyMatch(a: string, b: string): boolean {
   return dist <= Math.floor(Math.max(a.length, b.length) / 3);
 }
 
+function cleanWord(word: string): string {
+  return word.toLowerCase().replace(NON_LETTER_DIGIT, '');
+}
+
 function charLevelMatch(
   sourceText: string,
   matchStartOffset: number,
@@ -87,7 +95,7 @@ function charLevelMatch(
     } else {
       let found = false;
 
-      const maxSkipR = Math.min(3, spk.length - ri - 1);
+      const maxSkipR = Math.min(6, spk.length - ri - 1);
       if (maxSkipR >= 1) {
         for (let skipR = 1; skipR <= maxSkipR; skipR++) {
           const nextRI = ri + skipR;
@@ -100,7 +108,7 @@ function charLevelMatch(
       }
       if (found) continue;
 
-      const maxSkipS = Math.min(3, src.length - si - 1);
+      const maxSkipS = Math.min(6, src.length - si - 1);
       if (maxSkipS >= 1) {
         for (let skipS = 1; skipS <= maxSkipS; skipS++) {
           const nextSI = si + skipS;
@@ -146,10 +154,8 @@ function wordLevelMatch(
       continue;
     }
 
-    const srcWord = sourceWords[si]
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-    const spkWord = spokenWords[ri].replace(/[^a-z0-9]/g, '');
+    const srcWord = cleanWord(sourceWords[si]);
+    const spkWord = cleanWord(spokenWords[ri]);
 
     if (srcWord === spkWord || isFuzzyMatch(srcWord, spkWord)) {
       matchedCharCount += sourceWords[si].length;
@@ -158,9 +164,9 @@ function wordLevelMatch(
       ri++;
     } else {
       let foundSpk = false;
-      const maxSpkSkip = Math.min(3, spokenWords.length - ri - 1);
+      const maxSpkSkip = Math.min(6, spokenWords.length - ri - 1);
       for (let skip = 1; skip <= maxSpkSkip; skip++) {
-        const nextSpk = spokenWords[ri + skip].replace(/[^a-z0-9]/g, '');
+        const nextSpk = cleanWord(spokenWords[ri + skip]);
         if (srcWord === nextSpk || isFuzzyMatch(srcWord, nextSpk)) {
           ri += skip;
           foundSpk = true;
@@ -170,11 +176,9 @@ function wordLevelMatch(
       if (foundSpk) continue;
 
       let foundSrc = false;
-      const maxSrcSkip = Math.min(3, sourceWords.length - si - 1);
+      const maxSrcSkip = Math.min(6, sourceWords.length - si - 1);
       for (let skip = 1; skip <= maxSrcSkip; skip++) {
-        const nextSrc = sourceWords[si + skip]
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '');
+        const nextSrc = cleanWord(sourceWords[si + skip]);
         if (nextSrc === spkWord || isFuzzyMatch(nextSrc, spkWord)) {
           for (let s = 0; s < skip; s++) {
             matchedCharCount += sourceWords[si + s].length + 1;
@@ -185,6 +189,21 @@ function wordLevelMatch(
         }
       }
       if (foundSrc) continue;
+
+      let foundLongSkip = false;
+      const maxLongSkip = Math.min(12, sourceWords.length - si - 1);
+      for (let skip = 7; skip <= maxLongSkip; skip++) {
+        const farSrc = cleanWord(sourceWords[si + skip]);
+        if (farSrc === spkWord || isFuzzyMatch(farSrc, spkWord)) {
+          for (let s = 0; s < skip; s++) {
+            matchedCharCount += sourceWords[si + s].length + 1;
+          }
+          si += skip;
+          foundLongSkip = true;
+          break;
+        }
+      }
+      if (foundLongSkip) continue;
 
       if (srcWord.length === 0) {
         matchedCharCount += sourceWords[si].length;

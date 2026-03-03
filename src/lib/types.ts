@@ -14,6 +14,7 @@ export interface Settings {
   auto_next_page: boolean;
   auto_next_page_delay: number;
   speech_locale: string;
+  deepgram_api_key: string;
 }
 
 export interface Script {
@@ -92,4 +93,5 @@ export const DEFAULT_SETTINGS: Settings = {
   auto_next_page: false,
   auto_next_page_delay: 3,
   speech_locale: 'en-US',
+  deepgram_api_key: '',
 };

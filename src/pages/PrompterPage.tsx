@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { usePrompterStore } from '../stores/prompterStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useDeepgramRecognition } from '../hooks/useDeepgramRecognition';
 import { useAudioLevels } from '../hooks/useAudioLevels';
+import { acquireMicStream, releaseMicStream } from '../lib/audioStream';
 import WordFlowDisplay from '../components/prompter/WordFlowDisplay';
 import AudioWaveform from '../components/prompter/AudioWaveform';
 import ElapsedTime from '../components/prompter/ElapsedTime';
@@ -27,7 +29,9 @@ export default function PrompterPage() {
     settings.listening_mode === 'wordTracking' ||
     settings.listening_mode === 'silencePaused';
 
-  const onSpeechResult = useCallback(
+  const useDeepgram = !!settings.deepgram_api_key;
+
+  const onBrowserSpeechResult = useCallback(
     (transcript: string) => {
       if (settings.listening_mode === 'wordTracking') {
         prompter.handleSpeechResult(transcript);
@@ -36,10 +40,28 @@ export default function PrompterPage() {
     [settings.listening_mode, prompter]
   );
 
-  const speech = useSpeechRecognition({
+  const browserSpeech = useSpeechRecognition({
     locale: settings.speech_locale,
-    onResult: onSpeechResult,
+    onResult: onBrowserSpeechResult,
   });
+
+  const onDeepgramResult = useCallback(
+    (result: { finalizedText: string; interimText: string }) => {
+      if (settings.listening_mode === 'wordTracking') {
+        prompter.handleDeepgramResult(result.finalizedText, result.interimText);
+      }
+    },
+    [settings.listening_mode, prompter]
+  );
+
+  const deepgramSpeech = useDeepgramRecognition({
+    apiKey: settings.deepgram_api_key,
+    locale: settings.speech_locale,
+    onResult: onDeepgramResult,
+  });
+
+  const isListening = useDeepgram ? deepgramSpeech.isListening : browserSpeech.isListening;
+  const speechError = useDeepgram ? deepgramSpeech.error : browserSpeech.error;
 
   useEffect(() => {
     if (!prompter.isActive) {
@@ -52,14 +74,39 @@ export default function PrompterPage() {
   useEffect(() => {
     if (!prompter.isActive) return;
     if (needsMic) {
-      speech.start();
-      audioLevels.start();
+      startMic();
     }
     return () => {
-      speech.stop();
-      audioLevels.stop();
+      stopMic();
     };
   }, [prompter.isActive, needsMic]);
+
+  async function startMic() {
+    try {
+      const stream = await acquireMicStream();
+      audioLevels.startWithStream(stream);
+      if (useDeepgram) {
+        deepgramSpeech.startWithStream(stream);
+      } else {
+        browserSpeech.start();
+      }
+    } catch {
+      if (!useDeepgram) {
+        browserSpeech.start();
+      }
+      audioLevels.start();
+    }
+  }
+
+  function stopMic() {
+    if (useDeepgram) {
+      deepgramSpeech.stop();
+    } else {
+      browserSpeech.stop();
+    }
+    audioLevels.stop();
+    releaseMicStream();
+  }
 
   useEffect(() => {
     const mode = settings.listening_mode;
@@ -146,64 +193,73 @@ export default function PrompterPage() {
   }, [prompter.isComplete, settings.auto_next_page, hasNextPage]);
 
   const handleClose = useCallback(() => {
-    speech.stop();
-    audioLevels.stop();
+    stopMic();
     prompter.reset();
     navigate('/');
-  }, [speech, audioLevels, prompter, navigate]);
+  }, [prompter, navigate]);
 
   const handleNextPage = useCallback(() => {
     if (countdownRef.current) clearInterval(countdownRef.current);
     setAutoAdvanceCountdown(null);
-    speech.stop();
+    stopMic();
     prompter.nextPage();
-    if (needsMic) {
-      setTimeout(() => speech.start(), 300);
+    if (useDeepgram) {
+      deepgramSpeech.resetTranscript();
     }
-  }, [prompter, speech, needsMic]);
+    if (needsMic) {
+      setTimeout(() => startMic(), 300);
+    }
+  }, [prompter, needsMic, useDeepgram]);
 
   const handlePrevPage = useCallback(() => {
-    speech.stop();
+    stopMic();
     prompter.prevPage();
-    if (needsMic) {
-      setTimeout(() => speech.start(), 300);
+    if (useDeepgram) {
+      deepgramSpeech.resetTranscript();
     }
-  }, [prompter, speech, needsMic]);
+    if (needsMic) {
+      setTimeout(() => startMic(), 300);
+    }
+  }, [prompter, needsMic, useDeepgram]);
 
   const handlePageSelect = useCallback(
     (index: number) => {
       if (countdownRef.current) clearInterval(countdownRef.current);
       setAutoAdvanceCountdown(null);
-      speech.stop();
+      stopMic();
       prompter.jumpToPage(index);
+      if (useDeepgram) {
+        deepgramSpeech.resetTranscript();
+      }
       if (needsMic) {
-        setTimeout(() => speech.start(), 300);
+        setTimeout(() => startMic(), 300);
       }
     },
-    [prompter, speech, needsMic]
+    [prompter, needsMic, useDeepgram]
   );
 
   const handleWordTap = useCallback(
     (charOffset: number) => {
       prompter.jumpToWord(charOffset);
       prompter.setComplete(false);
-      if (speech.isListening) {
-        speech.stop();
-        setTimeout(() => speech.start(), 200);
+      if (isListening) {
+        stopMic();
+        if (useDeepgram) {
+          deepgramSpeech.resetTranscript();
+        }
+        setTimeout(() => startMic(), 200);
       }
     },
-    [prompter, speech]
+    [prompter, isListening, useDeepgram]
   );
 
   const handleMicToggle = useCallback(() => {
-    if (speech.isListening) {
-      speech.stop();
-      audioLevels.stop();
+    if (isListening) {
+      stopMic();
     } else {
-      speech.start();
-      audioLevels.start();
+      startMic();
     }
-  }, [speech, audioLevels]);
+  }, [isListening]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -285,11 +341,11 @@ export default function PrompterPage() {
               onClick={handleMicToggle}
               className={clsx(
                 'w-9 h-9 flex items-center justify-center rounded-full transition-colors',
-                speech.isListening
+                isListening
                   ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                   : 'bg-white/10 text-white/50 hover:bg-white/20'
               )}
-              title={speech.isListening ? 'Mute mic' : 'Unmute mic'}
+              title={isListening ? 'Mute mic' : 'Unmute mic'}
             >
               <svg
                 width="16"
@@ -297,7 +353,7 @@ export default function PrompterPage() {
                 viewBox="0 0 16 16"
                 fill="currentColor"
               >
-                {speech.isListening ? (
+                {isListening ? (
                   <path d="M8 1a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0v-4A2.5 2.5 0 008 1zM4 7a.5.5 0 00-1 0 5 5 0 004.5 4.975V14H6a.5.5 0 000 1h4a.5.5 0 000-1H8.5v-2.025A5 5 0 0013 7a.5.5 0 00-1 0 4 4 0 01-8 0z" />
                 ) : (
                   <>
@@ -345,7 +401,7 @@ export default function PrompterPage() {
           fontColor={settings.font_color}
           listeningMode={settings.listening_mode}
           smoothWordProgress={prompter.smoothWordProgress}
-          isListening={speech.isListening || settings.listening_mode === 'classic'}
+          isListening={isListening || settings.listening_mode === 'classic'}
           onWordTap={handleWordTap}
         />
 
@@ -373,9 +429,12 @@ export default function PrompterPage() {
                   <button
                     onClick={() => {
                       prompter.startPage(0);
+                      if (useDeepgram) {
+                        deepgramSpeech.resetTranscript();
+                      }
                       if (needsMic) {
-                        speech.stop();
-                        setTimeout(() => speech.start(), 300);
+                        stopMic();
+                        setTimeout(() => startMic(), 300);
                       }
                     }}
                     className="px-5 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white text-sm font-medium rounded-lg transition-colors"
@@ -450,7 +509,7 @@ export default function PrompterPage() {
       </div>
 
       {settings.listening_mode === 'wordTracking' &&
-        speech.isListening &&
+        isListening &&
         prompter.lastSpokenText && (
           <div className="absolute bottom-14 left-4 z-20 max-w-md">
             <div className="text-xs text-white/30 truncate">
@@ -459,9 +518,17 @@ export default function PrompterPage() {
           </div>
         )}
 
-      {speech.error && (
+      {needsMic && isListening && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+          <span className="text-[10px] text-white/20 font-mono">
+            {useDeepgram ? 'Deepgram Nova-3' : 'Browser STT'}
+          </span>
+        </div>
+      )}
+
+      {speechError && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-lg text-sm text-red-300 max-w-md text-center">
-          {speech.error}
+          {speechError}
         </div>
       )}
 
