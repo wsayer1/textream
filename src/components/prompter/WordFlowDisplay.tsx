@@ -155,8 +155,7 @@ export default function WordFlowDisplay({
         }}
       >
         <div
-          className="flex flex-wrap"
-          style={{ fontFamily: familyValue, fontSize: `${sizeValue}px` }}
+          style={{ fontFamily: familyValue, fontSize: `${sizeValue}px`, wordBreak: 'break-word' }}
         >
           {items.map((item) => {
             const wordLen = item.word.length;
